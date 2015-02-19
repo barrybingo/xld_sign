@@ -495,7 +495,10 @@ std::string sha256(const std::string str) {
   return ss.str();
 }
 
-std::string appendSignature(unsigned char *sha_output) {
+std::string xld_signature(const std::string& str) {
+  _BYTE sha_output[128];
+  strcpy((char*)sha_output, sha256(str).c_str());
+
   char sigstring[512]; // [sp+38h] [bp-2CCh]@14
 
   _BYTE *v4 = (_BYTE *)sha_output;
@@ -567,36 +570,67 @@ std::string appendSignature(unsigned char *sha_output) {
   if (v15)
     sigstring[v23++] = tab[((unsigned __int8)v22 << (6 - v15)) & 0x3F];
   sigstring[v23] = 0; // null terminate
-  std::string s(sigstring);
-  return s;
+  std::ostringstream s;
+  s << "-----BEGIN XLD SIGNATURE-----\n"
+    << sigstring
+    << "\n-----END XLD SIGNATURE-----\n";
+  return s.str();
 }
 
 int main(int argc, char *argv[]) {
   if ((argc != 2) && (argc != 3)) {
-    std::cout << "Usage: " << argv[0] << "[-l] <logfile>\n"
-              << "  -l  dumps full log plus signature to STDOUT\n";
+    std::cout << "Usage: " << argv[0] << "[-v] [-l] <logfile>\n"
+              << "  -l  dumps full log plus signature to STDOUT\n"
+              << "  -v  verify log\n";
     return 1;
   }
 
-  std::ifstream in(argv[argc-1], std::ifstream::binary);
+  const char* file_name = argv[argc-1];
+  std::ifstream in(file_name, std::ifstream::binary);
   if (!in.is_open()) {
-    std::cerr << "ERROR: Unable to open log \"" << argv[argc-1] << "\"\n";
-    return 1;
+    std::cerr << "ERROR: Unable to open log \"" << file_name << "\"\n";
+    return -1;
   }
 
   std::ostringstream ss;
   ss << in.rdbuf();
   std::string log(ss.str());
 
-  if (argc == 3)
+  if (argc == 3 && (strcmp("-v", argv[1])==0)) {
+    if ((log.size() <= 0x19) || (log.size() > 0x7A120) ||
+        (strncmp(log.c_str(), "X Lossless Decoder version", 26))) {
+      std::cout << file_name << ": Not a logfile\n";
+      return -2;
+    }
+
+    size_t sig_start = log.find("\n-----BEGIN XLD SIGNATURE-----\n");
+    size_t sig_end = log.find("\n-----END XLD SIGNATURE-----\n");
+
+    if ((sig_start == std::string::npos) || (sig_end == std::string::npos)) {
+      std::cout << file_name << ": Not signed\n";
+      return -3;
+    }
+    if ((sig_end + 29 != log.size()) || (sig_end - sig_start - 31 > 0x1FF) ) {
+      std::cout << file_name << ": Malformed\n";
+      return -3;
+    }
+
+    std::string plain_log(log.begin(), log.begin() + sig_start + 1);
+    std::string sig_real = xld_signature(plain_log);
+    std::string sig = log.substr(sig_start + 1);
+
+    if (sig != sig_real) {
+      std::cout << file_name << ": Bad Sig\n";
+      return -3;
+    }
+
+    std::cout << file_name << ": OK\n";
+    return 0;
+  }
+
+  if (argc == 3 && (strcmp("-l", argv[1])==0))
     std::cout << log;
 
-  char buf[128];
-  strcpy(buf, sha256(log).c_str());
-  std::string sig = appendSignature((_BYTE *)buf);
-
-  std::cout << "\n-----BEGIN XLD SIGNATURE-----\n" << sig
-            << "\n-----END XLD SIGNATURE-----\n";
-
+  std::cout << xld_signature(log);
   return 0;
 }
