@@ -615,7 +615,7 @@ int main(int argc, char *argv[]) {
       return -3;
     }
 
-    std::string plain_log(log.begin(), log.begin() + sig_start + 1);
+    std::string plain_log(log.begin(), log.begin() + sig_start);
     std::string sig_real = xld_signature(plain_log);
     std::string sig = log.substr(sig_start + 1);
 
